@@ -2,6 +2,8 @@ import createSchema from 'part:@sanity/base/schema-creator'
 import schemaTypes from 'all:part:@sanity/base/schema-type'
 
 import excerptPortableText from './objects/excerptPortableText'
+import mainImage from './objects/mainImage'
+
 import article from './documents/article'
 import person from './documents/person'
 import category from './documents/category'
@@ -26,6 +28,7 @@ export default createSchema({
   types: schemaTypes
     .concat([
       excerptPortableText,
+      mainImage,
       article,
       person,
       category,

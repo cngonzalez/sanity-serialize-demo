@@ -31,6 +31,12 @@ export default {
       }
     },
     {
+      title: "Secondary Image",
+      name: "secondaryImage",
+      type: "mainImage",
+      description: "An arbitrary field that Carolina is using for testing purposes",
+    },
+    {
       title: "Title",
       name: "title",
       type: "string",

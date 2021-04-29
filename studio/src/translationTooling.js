@@ -12,22 +12,25 @@ const h = blocksToHtml.h
 //rudimentary helpers in case people don't filter. 
 const STOP_TYPES = [
   'reference', 'date', 'datetime', 'file', 
-    'geopoint', 'image', 'number', 'url'
+  'geopoint', 'image', 'number', 'url',
+  'crop', 'hotspot'
 ]
 
-const canTranslate = field => field.type.localize !== false
+const META_FIELDS = ['_key', '_type', '_id']
 
-const makeBaseInfo = obj => ({
-    _key: obj._key,
-    _type: obj._type,
-    _id: obj._id
-})
+const makeBaseInfo = (obj) => {
+  const baseKeys = META_FIELDS.filter(field => obj[field])
+  return Object.fromEntries(baseKeys.map(key => [key, obj[key]]))
+}
 
 export const getTranslatableFields = (doc, docFields) => {
   
   //TODO: extend logic for field-level translation
   const fieldsToTranslate = makeBaseInfo(doc)
-  const localizableFields = docFields.filter(canTranslate)
+
+  const localizableFields = docFields.filter(field => (
+    field.type.localize !== false && !STOP_TYPES.includes(field.name))
+  )
 
   localizableFields.forEach(field => {
 
@@ -39,9 +42,14 @@ export const getTranslatableFields = (doc, docFields) => {
       fieldsToTranslate[field.name] = serializeField(doc[field.name], field.name)
     }
 
-    else {
-      //check it's not a STOP_TYPE
-      //fields[fieldName] = getTranslatableFields(object.fields)
+    else if (!STOP_TYPES.includes(field.type.name)) {
+      //TODO: make check if user wants this to be serialized at all?
+      //assume this is an object and can be discovered
+      //TODO: test objects that are not declared at top-level
+      const objFields = schema.get(field.type.name).fields
+      const serialized = serializeField([doc[field.name]], field.name) 
+
+      fieldsToTranslate[field.name] = serialized
     }
 
   })
@@ -50,13 +58,14 @@ export const getTranslatableFields = (doc, docFields) => {
 
 
 const getTranslatableBlocks = (block) => {
+   // if (block._type == 'mainImage') {debugger}
    if (block._type === 'span' || block._type === 'block') {
       return block
-    } else if (STOP_TYPES.indexOf(block._type) >= 0) {
+    } else if (STOP_TYPES.includes(block._type)) {
       return {}
     } else {
         const blockType = schema.get(block._type)
-        if (!!blockType.localize) {
+        if (blockType.localize) {
           return getTranslatableFields(block, blockType.fields)
         } else { 
           return {}
@@ -67,9 +76,11 @@ const getTranslatableBlocks = (block) => {
 
 const serializeField = (arr, topFieldName) => {
   const blocksToTranslate = arr.map(getTranslatableBlocks)
+    .filter(obj => Object.keys(obj).length > 0)
   const output = []
 
   blocksToTranslate.forEach(block => {
+    //TODO: return string if there are no block fields
     const serializer = {block: props => h('p', {id: props.node._key}, props.children)}
 
     if (block._type !== 'span' && block._type !== 'block') {
@@ -79,7 +90,8 @@ const serializeField = (arr, topFieldName) => {
       Object.entries(block).forEach(([fieldName, value]) => {
         let htmlField = ""
 
-        if (fieldName == '_key' || fieldName == '_type') { 
+        //don't worry about metadata -- gets serialized at the end
+        if (META_FIELDS.includes(fieldName)) { 
           htmlField = "" 
         }
 
@@ -96,7 +108,12 @@ const serializeField = (arr, topFieldName) => {
       })
       
       serializer[block._type] = props => {
-        return h('div', {className: props.node._type, id: props.node._key, innerHTML: innerHTML})
+        return h('div', {
+          className: props.node._type,
+          id: props.node._key ?? props.node._id, 
+          innerHTML: innerHTML
+          }
+        )
       }
      }
 
@@ -106,7 +123,7 @@ const serializeField = (arr, topFieldName) => {
   })
 
   //TODO: human readable? add newlines?
-  return `<div class=${topFieldName}>${output.join()}</div>`
+  return `<div class="${topFieldName}">${output.join()}</div>`
     
 }
 
@@ -116,7 +133,7 @@ const deserializeHTML = (html, target) => {
   const HTMLnode = new DOMParser().parseFromString(html, 'text/html').body.children[0]
   const children = Array.from(HTMLnode.children)
 
-  const output = (!!target.type.of) ? [] : {}
+  const output = (target.type.of) ? [] : {}
   children.forEach(child => {
     
     //TODO: check custom deserialize rules for className
@@ -135,7 +152,7 @@ const deserializeHTML = (html, target) => {
     }
 
     //has specific class name, it's either an embedded obj or rich field
-    else if (!!child.className) {
+    else if (child.className) {
       let objType;
       let embeddedObj;
       //if i'm in an array, this is specific type
@@ -145,9 +162,15 @@ const deserializeHTML = (html, target) => {
         embeddedObj._key = child.id
         output.push(embeddedObj)
       }
-      //this is a rich text array as a field
+      //this is a rich object or text array as a field
       else {
-        objType = target.fields.find(field => field.name == child.className)
+        //you may have to find the type of object this is
+        let objType;
+        if (target.fields) {
+          objType = target.fields.find(field => field.name == child.className)
+        } else { 
+          objType = schema.get(child.className)
+        }
         embeddedObj = deserializeHTML(child.outerHTML, objType)
         embeddedObj._key = child.id
         output[child.className] = embeddedObj
@@ -179,10 +202,10 @@ export const googleTranslate = async (doc, lang) => {
     Object.entries(doc).map(async ([fieldName, val]) => {
       //dont get rate limited!
       await new Promise(r => setTimeout(r, 1000))
-      return {
-        key: fieldName,
-        value: await translate(val, {to: lang}).then(res => res.text)
-      }
+      return [
+        fieldName,
+        await translate(val, {to: lang}).then(res => res.text)
+      ]
     })
   )
   return Object.fromEntries(translatedEntries) 
