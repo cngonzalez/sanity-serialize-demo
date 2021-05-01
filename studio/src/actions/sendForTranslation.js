@@ -22,6 +22,8 @@ export const SendForTranslation = ({
     onHandle: async () => {
       const docType = schema.get(type)
       const toTranslate = getTranslatableFields(draft, docType.fields)
+      console.log('serialized doc')
+      console.log(toTranslate)
       // const translatableLangs = [languages.filter(lang => lang.name != baseLanguage.name)[0]]
       // const allTranslations = await Promise.all(
       //   translatableLangs.map(async lang => await googleTranslate(toTranslate, lang.name))
@@ -30,7 +32,8 @@ export const SendForTranslation = ({
       //   {lang: trans.lang, doc: translatedDocumentToBlocks(trans.doc, docType.fields, draft)})
       // )
       const deserialized = translatedDocumentToBlocks(toTranslate, docType.fields, draft)
-      debugger
+      console.log('deserialized doc')
+      console.log(deserialized)
       await publish.execute()
       setDialogOpen(true)
     },

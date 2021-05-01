@@ -1,15 +1,15 @@
 import schema from 'part:@sanity/base/schema'
 const blocksToHtml = require('@sanity/block-content-to-html')
 import blockTools from '@sanity/block-tools'
-import { setCORS } from "google-translate-api-browser";
+import  { serializers } from './translationSerializers'
+
+// import { setCORS } from "google-translate-api-browser";
 // setting up cors-anywhere server address
-const translate = setCORS("http://cors-anywhere.herokuapp.com/");
+// const translate = setCORS("http://cors-anywhere.herokuapp.com/");
 
 const h = blocksToHtml.h
 
-//TODO: check external serialization doc and override wherever needed
-
-//rudimentary helpers in case people don't filter. 
+//rudimentary stopgap in case people don't filter. 
 const STOP_TYPES = [
   'reference', 'date', 'datetime', 'file', 
   'geopoint', 'image', 'number', 'url',
@@ -23,18 +23,22 @@ const makeBaseInfo = (obj) => {
   return Object.fromEntries(baseKeys.map(key => [key, obj[key]]))
 }
 
+
 export const getTranslatableFields = (doc, docFields) => {
   
-  //TODO: extend logic for field-level translation
   const fieldsToTranslate = makeBaseInfo(doc)
 
   const localizableFields = docFields.filter(field => (
-    field.type.localize !== false && !STOP_TYPES.includes(field.name))
+    field.type.localize !== false && !STOP_TYPES.includes(field.type.name))
   )
 
   localizableFields.forEach(field => {
 
-    if (field.type.name == 'string' || field.type.name == 'text') {
+    if (Object.keys(serializers).includes(field.type.name) && doc[field.name]) {
+      fieldsToTranslate[field.name] = serializers[field.type.name].serialize(doc[field.name])
+    }
+
+    else if (field.type.name == 'string' || field.type.name == 'text') {
       fieldsToTranslate[field.name] = doc[field.name]
     } 
 
@@ -42,13 +46,11 @@ export const getTranslatableFields = (doc, docFields) => {
       fieldsToTranslate[field.name] = serializeField(doc[field.name], field.name)
     }
 
-    else if (!STOP_TYPES.includes(field.type.name)) {
-      //TODO: make check if user wants this to be serialized at all?
+    else if (!STOP_TYPES.includes(field.type.name) && doc[field.name]) {
+      //TODO: make check if user wants this to be serialized at all? -- objs can stay objs in certain cases
       //assume this is an object and can be discovered
-      //TODO: test objects that are not declared at top-level
-      const objFields = schema.get(field.type.name).fields
-      const serialized = serializeField([doc[field.name]], field.name) 
-
+      const serialized = serializeBlock(doc[field.name]) 
+  
       fieldsToTranslate[field.name] = serialized
     }
 
@@ -58,7 +60,6 @@ export const getTranslatableFields = (doc, docFields) => {
 
 
 const getTranslatableBlocks = (block) => {
-   // if (block._type == 'mainImage') {debugger}
    if (block._type === 'span' || block._type === 'block') {
       return block
     } else if (STOP_TYPES.includes(block._type)) {
@@ -66,6 +67,7 @@ const getTranslatableBlocks = (block) => {
     } else {
         const blockType = schema.get(block._type)
         if (blockType.localize) {
+          debugger
           return getTranslatableFields(block, blockType.fields)
         } else { 
           return {}
@@ -77,54 +79,51 @@ const getTranslatableBlocks = (block) => {
 const serializeField = (arr, topFieldName) => {
   const blocksToTranslate = arr.map(getTranslatableBlocks)
     .filter(obj => Object.keys(obj).length > 0)
-  const output = []
-
-  blocksToTranslate.forEach(block => {
-    //TODO: return string if there are no block fields
-    const serializer = {block: props => h('p', {id: props.node._key}, props.children)}
-
-    if (block._type !== 'span' && block._type !== 'block') {
-      let innerHTML = ""
-
-      //TODO: have these fields follow the order that they're in the schema
-      Object.entries(block).forEach(([fieldName, value]) => {
-        let htmlField = ""
-
-        //don't worry about metadata -- gets serialized at the end
-        if (META_FIELDS.includes(fieldName)) { 
-          htmlField = "" 
-        }
-
-        else if (typeof(value) === 'string') {
-          //check if this has already been recursively turned into html
-          //TODO: do this in regex
-          htmlField = (value[0] == '<') ? value : `<span class="${fieldName}">${value}</span>`
-        } else {
-          htmlField = ""
-          //TODO: think i need to recurse one more time here -- this would be an obj
-          //innerHTML.push(blocksToHTML({ blocks: value }))
-        }
-        innerHTML += htmlField
-      })
-      
-      serializer[block._type] = props => {
-        return h('div', {
-          className: props.node._type,
-          id: props.node._key ?? props.node._id, 
-          innerHTML: innerHTML
-          }
-        )
-      }
-     }
-
-    let res = blocksToHtml({blocks: [block], serializers: {types: serializer}})
-    output.push(res)
-
-  })
+  console.log(blocksToTranslate)
+  const output = blocksToTranslate.map(serializeBlock)
 
   //TODO: human readable? add newlines?
   return `<div class="${topFieldName}">${output.join()}</div>`
     
+}
+
+
+const serializeBlock = (block) => {
+  const serializer = {block: props => h('p', {id: props.node._key}, props.children)}
+
+  if (block._type !== 'span' && block._type !== 'block') {
+    let innerHTML = ""
+
+    //TODO: have these fields follow the order that they're in the schema
+    Object.entries(block).forEach(([fieldName, value]) => {
+      let htmlField = ""
+
+      //don't worry about metadata -- gets serialized at the end
+      if (META_FIELDS.includes(fieldName)) { 
+        htmlField = "" 
+      }
+
+      else if (typeof(value) === 'string') {
+        //check if this has already been recursively turned into html
+        const htmlRegex = /^</
+        htmlField = (value.match(htmlRegex)) ? value : `<span class="${fieldName}">${value}</span>`
+      } 
+
+      innerHTML += htmlField
+    })
+    
+    serializer[block._type] = props => {
+      return h('div', {
+        className: props.node._type,
+        id: props.node._key ?? props.node._id, 
+        innerHTML: innerHTML
+        }
+      )
+    }
+   }
+
+  return blocksToHtml({blocks: [block], serializers: {types: serializer}})
+
 }
 
 
@@ -136,7 +135,9 @@ const deserializeHTML = (html, target) => {
   const output = (target.type.of) ? [] : {}
   children.forEach(child => {
     
-    //TODO: check custom deserialize rules for className
+    if (Object.keys(serializers).includes(child.className)) {
+      output[child.className] = serializers[child.className].deserialize(child)
+    }
     
     //flat string, it's an unrich field
     if (child.tagName.toLowerCase() == 'span') {
@@ -160,11 +161,12 @@ const deserializeHTML = (html, target) => {
         objType = schema.get(child.className)
         embeddedObj = deserializeHTML(child.outerHTML, objType)
         embeddedObj._key = child.id
+        embeddedObj._type = child.className
         output.push(embeddedObj)
       }
       //this is a rich object or text array as a field
       else {
-        //you may have to find the type of object this is
+        //you may have to find the type of object this is if the field is a custom type
         let objType;
         if (target.fields) {
           objType = target.fields.find(field => field.name == child.className)
@@ -181,10 +183,11 @@ const deserializeHTML = (html, target) => {
   return output
 }
 
+
 export const translatedDocumentToBlocks = (doc, docFields, origDraft) => {
 
   const finalDoc = makeBaseInfo(doc)
-  const fieldsToIngest = docFields.filter(field => Object.keys(doc).indexOf(field.name) >= 0)
+  const fieldsToIngest = docFields.filter(field => Object.keys(doc).includes(field.name))
   fieldsToIngest.forEach(field => {
     if (field.type.name == 'string' || field.type.name == 'text') {
       finalDoc[field.name] = doc[field.name]
@@ -195,6 +198,7 @@ export const translatedDocumentToBlocks = (doc, docFields, origDraft) => {
 
  return finalDoc
 }
+
 
 export const googleTranslate = async (doc, lang) => {
   const translatedDoc = {}
