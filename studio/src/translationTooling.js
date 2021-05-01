@@ -48,9 +48,7 @@ export const getTranslatableFields = (doc, docFields) => {
 
     else if (!STOP_TYPES.includes(field.type.name) && doc[field.name]) {
       //TODO: make check if user wants this to be serialized at all? -- objs can stay objs in certain cases
-      //assume this is an object and can be discovered
       const serialized = serializeBlock(doc[field.name]) 
-  
       fieldsToTranslate[field.name] = serialized
     }
 
@@ -67,7 +65,6 @@ const getTranslatableBlocks = (block) => {
     } else {
         const blockType = schema.get(block._type)
         if (blockType.localize) {
-          debugger
           return getTranslatableFields(block, blockType.fields)
         } else { 
           return {}
@@ -79,7 +76,6 @@ const getTranslatableBlocks = (block) => {
 const serializeField = (arr, topFieldName) => {
   const blocksToTranslate = arr.map(getTranslatableBlocks)
     .filter(obj => Object.keys(obj).length > 0)
-  console.log(blocksToTranslate)
   const output = blocksToTranslate.map(serializeBlock)
 
   //TODO: human readable? add newlines?
@@ -166,13 +162,13 @@ const deserializeHTML = (html, target) => {
       }
       //this is a rich object or text array as a field
       else {
-        //you may have to find the type of object this is if the field is a custom type
         let objType;
         if (target.fields) {
           objType = target.fields.find(field => field.name == child.className)
         } else { 
           objType = schema.get(child.className)
         }
+
         embeddedObj = deserializeHTML(child.outerHTML, objType)
         embeddedObj._key = child.id
         output[child.className] = embeddedObj
@@ -200,17 +196,17 @@ export const translatedDocumentToBlocks = (doc, docFields, origDraft) => {
 }
 
 
-export const googleTranslate = async (doc, lang) => {
-  const translatedDoc = {}
-  const translatedEntries = await Promise.all(
-    Object.entries(doc).map(async ([fieldName, val]) => {
-      //dont get rate limited!
-      await new Promise(r => setTimeout(r, 1000))
-      return [
-        fieldName,
-        await translate(val, {to: lang}).then(res => res.text)
-      ]
-    })
-  )
-  return Object.fromEntries(translatedEntries) 
-}
+//export const googleTranslate = async (doc, lang) => {
+//  const translatedDoc = {}
+//  const translatedEntries = await Promise.all(
+//    Object.entries(doc).map(async ([fieldName, val]) => {
+//      //dont get rate limited!
+//      await new Promise(r => setTimeout(r, 1000))
+//      return [
+//        fieldName,
+//        await translate(val, {to: lang}).then(res => res.text)
+//      ]
+//    })
+//  )
+//  return Object.fromEntries(translatedEntries) 
+//}
