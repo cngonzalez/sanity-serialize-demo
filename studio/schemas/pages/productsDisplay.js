@@ -2,6 +2,7 @@ export default {
   title: "Products Display",
   name: "productsDisplay",
   type: "document",
+  localize: true,
   fields: [
     {
       title: 'Copy', 
@@ -14,6 +15,7 @@ export default {
       title: "Products",
       name: "products",
       description: "The products for this list item",
+      localize: false,
       type: "array",
       of: [{type: "reference",
             to: [

@@ -1,11 +1,8 @@
 import schema from 'part:@sanity/base/schema'
+import client from 'part:@sanity/base/client'
 const blocksToHtml = require('@sanity/block-content-to-html')
 import blockTools from '@sanity/block-tools'
 import  { serializers } from './translationSerializers'
-
-// import { setCORS } from "google-translate-api-browser";
-// setting up cors-anywhere server address
-// const translate = setCORS("http://cors-anywhere.herokuapp.com/");
 
 const h = blocksToHtml.h
 
@@ -23,6 +20,29 @@ const makeBaseInfo = (obj) => {
   return Object.fromEntries(baseKeys.map(key => [key, obj[key]]))
 }
 
+export const getSerializedDocument = async (documentId) => {
+  //TODO: QUERY FOR DRAFT
+  //TODO: useDocumentState
+  const query = `*[_id match $id]`
+  const params = {id: documentId}
+  return client.fetch(query, params)
+    .then(docs => {
+      let doc = docs.find(doc => doc._id.includes('draft'))
+      if (!doc) { doc = docs[0] }
+      const docFields = schema.get(doc._type).fields
+      return getTranslatableFields(doc, docFields)
+    }) 
+}
+
+export const getDeserializedDocument = async (documentId, serializedDoc) => {
+  const query = `*[_id == $id][0]`
+  const params = {id: documentId}
+  return client.fetch(query, params)
+    .then(doc => {
+      const docFields = schema.get(doc._type).fields
+      return translatedDocumentToBlocks(serializedDoc, docFields)
+    }) 
+}
 
 export const getTranslatableFields = (doc, docFields) => {
   
@@ -126,6 +146,7 @@ const serializeBlock = (block) => {
 const deserializeHTML = (html, target) => {
   //parent node is always div with classname of field -- get its children
   const HTMLnode = new DOMParser().parseFromString(html, 'text/html').body.children[0]
+  if (!HTMLnode) { return  }
   const children = Array.from(HTMLnode.children)
 
   const output = (target.type.of) ? [] : {}
@@ -180,7 +201,7 @@ const deserializeHTML = (html, target) => {
 }
 
 
-export const translatedDocumentToBlocks = (doc, docFields, origDraft) => {
+const translatedDocumentToBlocks = (doc, docFields) => {
 
   const finalDoc = makeBaseInfo(doc)
   const fieldsToIngest = docFields.filter(field => Object.keys(doc).includes(field.name))
@@ -195,18 +216,59 @@ export const translatedDocumentToBlocks = (doc, docFields, origDraft) => {
  return finalDoc
 }
 
+const patchArray = (origArray, translatedArray) => {
+  const combined = JSON.parse(JSON.stringify(origArray))
+  translatedArray.forEach(block => {
+    let foundBlockIdx;
+    let i = 0;
+    while (!foundBlockIdx && i < (origArray.length)) {
+      if (block._key == origArray[i]._key) {
+        foundBlockIdx = i
+      }
+      i++
+    }
 
-//export const googleTranslate = async (doc, lang) => {
-//  const translatedDoc = {}
-//  const translatedEntries = await Promise.all(
-//    Object.entries(doc).map(async ([fieldName, val]) => {
-//      //dont get rate limited!
-//      await new Promise(r => setTimeout(r, 1000))
-//      return [
-//        fieldName,
-//        await translate(val, {to: lang}).then(res => res.text)
-//      ]
-//    })
-//  )
-//  return Object.fromEntries(translatedEntries) 
-//}
+    if (foundBlockIdx == undefined) {console.log(block)}
+    //just replace entirely
+    else if (origArray[foundBlockIdx]._type == 'block' || origArray[foundBlockIdx]._type == 'span') {
+      combined[foundBlockIdx] = block
+    } else {
+      combined[foundBlockIdx] = combineOldAndNewFields(block._type, origArray[foundBlockIdx], block)
+    }
+  })
+  return combined
+}
+
+const combineOldAndNewFields = (type, oldObj, newObj) => {
+  const fields = schema.get(type).fields.filter(field => Object.keys(newObj).includes(field.name))
+  const updatedObj = JSON.parse(JSON.stringify(oldObj))
+  fields.forEach(field => {
+    if (field.type.name == 'string' || field.type.name == 'text') {
+      updatedObj[field.name] = newObj[field.name]
+    } else if (Array.isArray(newObj[field.name])) {
+      updatedObj[field.name] = patchArray(oldObj[field.name], newObj[field.name])
+    } else {
+      updatedObj[field.name] = combineOldAndNewFields(field.type.name, oldObj[field.name], newObj[field.name])
+    }
+  })
+
+  return updatedObj
+
+}
+
+export const patchChangesBackToDoc = async (origId, locale, translatedDoc) => {
+  const baseLocaleId = `i18n.${origId}.${locale}`
+  let doc = await client.fetch(`*[_id == $id][0]`, {id: baseLocaleId})
+  if (!doc) {
+    //Also check for drafts
+    const origDoc = await client.fetch(`*[_id == $id][0]`, {id: origId})
+    const newDoc = origDoc
+    newDoc._id = baseLocaleId
+    newDoc._lang = locale
+    doc = await client.create(newDoc)
+  }
+  const updates = combineOldAndNewFields(doc._type, doc, translatedDoc)
+  client.patch(baseLocaleId).set(updates).commit()
+  console.log('patch completed!')
+}
+

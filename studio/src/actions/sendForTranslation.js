@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useDocumentOperation } from '@sanity/react-hooks'
-import { getTranslatableFields,
-         translatedDocumentToBlocks,
-         googleTranslate } from '../translationTooling'
+import { getSerializedDocument} from '../serializationHelpers'
 import schema from 'part:@sanity/base/schema'
 import { languages, baseLanguage } from '../../schemas/languages'
+import { createTask, getTranslation } from '../transifexAdapter'
 
 export const SendForTranslation = ({
   id,
@@ -20,20 +19,10 @@ export const SendForTranslation = ({
     label: 'Send For Translation',
     icon: () =>  'T',
     onHandle: async () => {
-      const docType = schema.get(type)
-      const toTranslate = getTranslatableFields(draft, docType.fields)
-      console.log('serialized doc')
-      console.log(toTranslate)
-      // const translatableLangs = [languages.filter(lang => lang.name != baseLanguage.name)[0]]
-      // const allTranslations = await Promise.all(
-      //   translatableLangs.map(async lang => await googleTranslate(toTranslate, lang.name))
-      // )
-      // const translatedDocsAsBlocks = allTranslations.map(trans => (
-      //   {lang: trans.lang, doc: translatedDocumentToBlocks(trans.doc, docType.fields, draft)})
-      // )
-      const deserialized = translatedDocumentToBlocks(toTranslate, docType.fields, draft)
-      console.log('deserialized doc')
-      console.log(deserialized)
+      const task = await createTask(id)
+      console.log(task)
+      const translation = await getTranslation(task.taskId, 'fr')
+      console.log(translation)
       await publish.execute()
       setDialogOpen(true)
     },

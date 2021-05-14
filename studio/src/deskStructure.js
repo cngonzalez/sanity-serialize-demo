@@ -11,11 +11,23 @@ import { MdEdit,
          MdSettings
 } from "react-icons/md"
 import * as Structure from 'sanity-plugin-intl-input/lib/structure';
+import {TranslationTab } from "sanity-plugin-translation"
+import { TransifexAdapter } from './transifexAdapter'
+import { patchChangesBackToDoc } from './serializationHelpers'
 
 export const getDefaultDocumentNode = (props) => {
   if (props.schemaType === 'article'
     || props.schemaType === 'campaign') {
-    return S.document().views(Structure.getDocumentNodeViewsForSchemaType(props.schemaType));
+    return S.document().views([
+      ...Structure.getDocumentNodeViewsForSchemaType(props.schemaType),
+      S.view.component(TranslationTab).title('Transifex').options({
+        importTranslation: (id, localeId, document) => {
+          console.log('Importing', id, localeId, document)
+          patchChangesBackToDoc(id, localeId, document)
+        },
+        adapter: TransifexAdapter
+      })
+    ]);
   }
   return S.document();
 };
